@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pocket MMA: Octagon Legend</title>
+    <style>
+        /* --- CSS STYLES --- */
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none; /* Отключаем зум и скролл на мобильных */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Чтобы клики проходили сквозь UI к канвасу */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* HUD (Bars) */
+        .hud-top {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            text-shadow: 1px 1px 2px black;
+        }
+
+        .fighter-stats {
+            width: 40%;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .name { font-weight: bold; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
+        
+        .bar-container {
+            width: 100%;
+            height: 12px;
+            background: #333;
+            border: 2px solid #000;
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .bar-fill { height: 100%; transition: width 0.2s ease-out; }
+        .hp-fill { background: #e74c3c; }
+        .stamina-fill { background: #f1c40f; margin-top: 2px; height: 6px; } /* Stamina тоньше */
+
+        .round-info {
+            text-align: center;
+            font-weight: 900;
+            font-size: 24px;
+            color: #fff;
+        }
+
+        /* Controls Hint */
+        .controls-hint {
+            display: flex;
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            opacity: 0.3;
+            pointer-events: none;
+        }
+        .hint-zone {
+            width: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 30px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .hint-left { border-right: 1px dashed #fff; }
+        
+        /* Screens */
+        .screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            z-index: 10;
+            transition: opacity 0.3s;
+        }
+
+        .hidden { opacity: 0; pointer-events: none; }
+
+        h1 { font-size: 40px; margin: 0 0 20px 0; color: #e74c3c; font-style: italic; text-align: center;}
+        p { font-size: 18px; color: #ccc; max-width: 300px; text-align: center; margin-bottom: 30px; line-height: 1.5;}
+        
+        .btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        /* Mobile adjustments */
+        @media (max-width: 600px) {
+            h1 { font-size: 32px; }
+            .name { font-size: 12px; }
+            .round-info { font-size: 18px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- UI Layer -->
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div class="fighter-stats" id="p1-stats">
+                <div class="name" style="color: #3498db">Вы (Player)</div>
+                <div class="bar-container"><div class="bar-fill hp-fill" id="p1-hp" style="width: 100%"></div></div>
+                <div class="bar-container" style="height: 6px; margin-top:4px; border:1px solid #000;"><div class="bar-fill stamina-fill" id="p1-st" style="width: 100%"></div></div>
+            </div>
+            
+            <div class="round-info">VS</div>
+
+            <div class="fighter-stats" id="p2-stats">
+                <div class="name" style="color: #e74c3c; text-align: right;">Соперник</div>
+                <div class="bar-container"><div class="bar-fill hp-fill" id="p2-hp" style="width: 100%"></div></div>
+                <div class="bar-container" style="height: 6px; margin-top:4px; border:1px solid #000;"><div class="bar-fill stamina-fill" id="p2-st" style="width: 100%"></div></div>
+            </div>
+        </div>
+
+        <div class="controls-hint" id="hints">
+            <div class="hint-zone hint-left">ДЕРЖИ<br>БЛОК</div>
+            <div class="hint-zone">ТАП<br>АТАКА</div>
+        </div>
+    </div>
+
+    <!-- Screens -->
+    <div id="start-screen" class="screen">
+        <h1>POCKET MMA</h1>
+        <p>Левая зона: <b>Удержание Блока</b><br>Правая зона: <b>Удар</b><br><br>Следи за энергией и жди момента для атаки!</p>
+        <button class="btn" id="start-btn">БОЙ!</button>
+    </div>
+
+    <div id="gameover-screen" class="screen hidden">
+        <h1 id="go-title">НОКАУТ!</h1>
+        <p id="go-score">Побед подряд: 0</p>
+        <button class="btn" id="restart-btn">ЕЩЁ РАЗ</button>
+    </div>
+
+    <script>
+        /**
+         * POCKET MMA - Game Logic
+         * Архитектура:
+         * 1. Constants & Config - Настройки баланса.
+         * 2. Utils - Вспомогательные функции (рандом, аудио).
+         * 3. InputHandler - Обработка тачей и мыши.
+         * 4. Fighter Class - Логика бойца (состояние, анимация, статы).
+         * 5. Particle System - Кровь и пот.
+         * 6. GameEngine - Главный цикл, отрисовка, управление состояниями.
+         */
+
+        // --- 1. CONSTANTS & CONFIG ---
+        const CONFIG = {
+            gravity: 0.8,
+            groundY: 0.8, // % от высоты экрана
+            fighterSize: 80, // Базовый размер (масштабируется)
+            staminaRegen: 0.3,
+            staminaCostHit: 15,
+            staminaCostBlock: 0.5, // за тик
+            maxHP: 100,
+            maxStamina: 100,
+            aiBaseDelay: 60, // Фреймы между действиями AI
+        };
+
+        const STATES = {
+            IDLE: 0,
+            BLOCK: 1,
+            PREP_ATTACK: 2, // Замах
+            ATTACK: 3,      // Удар
+            HIT: 4,         // Получение урона
+            KO: 5
+        };
+
+        // --- 2. UTILS & AUDIO ---
+        const AudioSys = {
+            ctx: null,
+            init: function() {
+                window.AudioContext = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioContext();
+            },
+            playTone: function(freq, type, duration) {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + duration);
+            },
+            playHit: function() {
+                // Шумовой удар
+                if (!this.ctx) return;
+                const bufferSize = this.ctx.sampleRate * 0.1; // 0.1 sec
+                const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                const noise = this.ctx.createBufferSource();
+                noise.buffer = buffer;
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+                noise.connect(gain);
+                gain.connect(this.ctx.destination);
+                noise.start();
+            },
+            playBlock: function() { this.playTone(150, 'square', 0.1); },
+            playWhoosh: function() { this.playTone(300, 'triangle', 0.1); },
+            playWin: function() { 
+                setTimeout(() => this.playTone(400, 'sine', 0.2), 0);
+                setTimeout(() => this.playTone(600, 'sine', 0.4), 200);
+            }
+        };
+
+        // --- 3. INPUT HANDLER ---
+        const Input = {
+            leftActive: false, // Блок
+            rightTap: false,   // Атака (флаг одного кадра)
+            
+            init: function(canvas) {
+                const handleStart = (e) => {
+                    e.preventDefault(); // Блокируем скролл
+                    // Поддержка мультитача
+                    for (let i = 0; i < e.changedTouches.length; i++) {
+                        this.processTouch(e.changedTouches[i].clientX);
+                    }
+                };
+
+                const handleEnd = (e) => {
+                    e.preventDefault();
+                    // Если пальцев нет, сбрасываем блок. 
+                    // Упрощение: если тач закончился, проверяем, остался ли палец слева
+                    let leftStillActive = false;
+                    for (let i = 0; i < e.touches.length; i++) {
+                        if (e.touches[i].clientX < window.innerWidth / 2) leftStillActive = true;
+                    }
+                    this.leftActive = leftStillActive;
+                };
+
+                // Mouse fallbacks for PC
+                const handleMouseDown = (e) => this.processTouch(e.clientX);
+                const handleMouseUp = () => { this.leftActive = false; };
+
+                canvas.addEventListener('touchstart', handleStart, {passive: false});
+                canvas.addEventListener('touchend', handleEnd, {passive: false});
+                canvas.addEventListener('mousedown', handleMouseDown);
+                canvas.addEventListener('mouseup', handleMouseUp);
+
+                // Keyboard Support
+                window.addEventListener('keydown', (e) => {
+                    if (e.code === 'KeyA' || e.code === 'ArrowLeft') this.leftActive = true;
+                    if (e.code === 'KeyD' || e.code === 'ArrowRight') this.rightTap = true;
+                });
+                window.addEventListener('keyup', (e) => {
+                    if (e.code === 'KeyA' || e.code === 'ArrowLeft') this.leftActive = false;
+                });
+            },
+
+            processTouch: function(x) {
+                const mid = window.innerWidth / 2;
+                if (x < mid) {
+                    this.leftActive = true;
+                } else {
+                    this.rightTap = true;
+                }
+            },
+
+            consumeTap: function() {
+                if (this.rightTap) {
+                    this.rightTap = false;
+                    return true;
+                }
+                return false;
+            }
+        };
+
+        // --- 4. VISUALS & PARTICLES ---
+        class Particle {
+            constructor(x, y, color, speed) {
+                this.x = x; this.y = y;
+                this.vx = (Math.random() - 0.5) * speed;
+                this.vy = (Math.random() - 1) * speed;
+                this.life = 1.0;
+                this.color = color;
+                this.size = Math.random() * 4 + 2;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.5; // Gravity
+                this.life -= 0.05;
+            }
+            draw(ctx) {
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        // --- 5. FIGHTER CLASS ---
+        class Fighter {
+            constructor(isPlayer, color) {
+                this.isPlayer = isPlayer;
+                this.color = color; // Color of gloves
+                this.reset();
+            }
+
+            reset() {
+                this.hp = CONFIG.maxHP;
+                this.stamina = CONFIG.maxStamina;
+                this.state = STATES.IDLE;
+                this.stateTimer = 0;
+                // Визуальные параметры
+                this.animOffset = 0; 
+                this.animFrame = 0;
+                this.punchProgress = 0; // 0 to 1
+            }
+
+            update(dt, enemy, difficultyMod = 1) {
+                // Регенерация стамины
+                if (this.state === STATES.IDLE && this.stamina < CONFIG.maxStamina) {
+                    this.stamina += CONFIG.staminaRegen;
+                }
+
+                this.stateTimer++;
+                this.animFrame += 0.1;
+
+                // --- AI LOGIC (Simple State Machine) ---
+                if (!this.isPlayer && this.state !== STATES.KO) {
+                    this.aiUpdate(enemy, difficultyMod);
+                }
+
+                // --- ANIMATION LOGIC ---
+                if (this.state === STATES.ATTACK) {
+                    // Анимация удара
+                    this.punchProgress += 0.15; // Скорость удара
+                    if (this.punchProgress >= 1) {
+                        this.punchProgress = 0;
+                        this.state = STATES.IDLE;
+                    }
+                    // Момент нанесения урона (середина анимации)
+                    if (this.punchProgress > 0.5 && this.punchProgress < 0.65) {
+                        this.tryHit(enemy);
+                    }
+                } else if (this.state === STATES.HIT) {
+                    if (this.stateTimer > 15) this.state = STATES.IDLE;
+                } else if (this.state === STATES.PREP_ATTACK) {
+                    // Задержка перед ударом (телеграф)
+                    if (this.stateTimer > (20 / difficultyMod)) { // Чем сложнее, тем быстрее удар
+                        this.state = STATES.ATTACK;
+                        this.punchProgress = 0;
+                        AudioSys.playWhoosh();
+                    }
+                }
+            }
+
+            aiUpdate(enemy, diff) {
+                // AI ждет, иногда бьет, иногда блокирует если игрок бьет
+                if (this.state === STATES.IDLE) {
+                    // Реакция на замах игрока
+                    if (enemy.state === STATES.ATTACK && Math.random() > 0.3) {
+                        this.state = STATES.BLOCK;
+                        this.stateTimer = 0;
+                        return;
+                    }
+                    
+                    // Атака
+                    if (this.stateTimer > (CONFIG.aiBaseDelay / diff) + Math.random()*30) {
+                        if (Math.random() > 0.5) {
+                            this.state = STATES.PREP_ATTACK;
+                            this.stateTimer = 0;
+                        } else {
+                            this.stateTimer = 0; // Ждем еще
+                        }
+                    }
+                } else if (this.state === STATES.BLOCK) {
+                    if (enemy.state === STATES.IDLE) this.state = STATES.IDLE;
+                }
+            }
+
+            tryHit(enemy) {
+                // Проверка попадания
+                if (enemy.state === STATES.BLOCK) {
+                    // Враг заблокировал
+                    enemy.stamina -= 10;
+                    enemy.animOffset = 5; // Тряска
+                    AudioSys.playBlock();
+                    Game.addParticles(enemy.x, enemy.y - 50, '#fff', 5); // Искры
+                } else {
+                    // Чистое попадание
+                    const dmg = 10 + Math.random() * 5;
+                    enemy.takeDamage(dmg);
+                    Game.shakeScreen(5);
+                    Game.addParticles(enemy.x, enemy.y - 60, '#e74c3c', 10); // Кровь
+                }
+            }
+
+            takeDamage(amount) {
+                this.hp -= amount;
+                this.state = STATES.HIT;
+                this.stateTimer = 0;
+                AudioSys.playHit();
+                if (this.hp <= 0) {
+                    this.hp = 0;
+                    this.state = STATES.KO;
+                }
+            }
+
+            draw(ctx, width, height) {
+                const scale = height / 800; 
+                const cx = this.isPlayer ? width * 0.3 : width * 0.7;
+                const cy = height * CONFIG.groundY;
+                const facing = this.isPlayer ? 1 : -1;
+
+                this.x = cx; // Сохраняем для частиц
+                this.y = cy;
+
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.scale(scale * facing, scale);
+
+                // Тряска при получении урона
+                if (this.state === STATES.HIT) {
+                    ctx.translate(Math.random()*10 - 5, Math.random()*10 - 5);
+                }
+
+                // Дыхание (idle animation)
+                const breathe = Math.sin(this.animFrame) * 2;
+                
+                // Цвет тела
+                ctx.fillStyle = this.state === STATES.KO ? "#555" : (this.state === STATES.HIT ? "#fff" : "#222");
+                if (this.state === STATES.PREP_ATTACK && !this.isPlayer) ctx.fillStyle = "#e74c3c"; // Враг краснеет перед атакой
+
+                // Логика поз
+                let armX = 20, armY = -130 + breathe;
+                let headY = -160 + breathe;
+
+                if (this.state === STATES.BLOCK) {
+                    armX = 40; armY = -150; // Руки выше
+                } else if (this.state === STATES.ATTACK) {
+                    // Выпад руки
+                    const reach = Math.sin(this.punchProgress * Math.PI) * 120;
+                    armX += reach;
+                }
+
+                // 1. Задняя нога
+                this.drawLimb(ctx, -20, 0, -30, -70);
+                // 2. Задняя рука
+                this.drawGlove(ctx, armX - 10, armY, this.color);
+
+                // 3. Тело
+                ctx.beginPath();
+                if (this.state === STATES.KO) {
+                     // Лежит
+                    ctx.ellipse(-50, 0, 20, 70, Math.PI/2, 0, Math.PI*2);
+                } else {
+                    // Стоит
+                    ctx.ellipse(0, -90 + breathe, 25, 70, 0, 0, Math.PI*2);
+                }
+                ctx.fill();
+
+                if (this.state !== STATES.KO) {
+                    // 4. Голова
+                    ctx.beginPath();
+                    ctx.arc(0, headY, 20, 0, Math.PI*2);
+                    ctx.fill();
+
+                    // 5. Передняя нога
+                    this.drawLimb(ctx, 20, 0, 30, -70);
+                    
+                    // 6. Передняя рука (ударная)
+                    this.drawGlove(ctx, armX + 15, armY + 10, this.color);
+                }
+
+                ctx.restore();
+            }
+
+            drawLimb(ctx, x1, y1, x2, y2) {
+                ctx.strokeStyle = "#222";
+                ctx.lineWidth = 12;
+                ctx.lineCap = "round";
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2); // Колено/Локоть
+                ctx.lineTo(0, -80); // К телу
+                ctx.stroke();
+            }
+
+            drawGlove(ctx, x, y, color) {
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(x, y, 18, 0, Math.PI*2);
+                ctx.fill();
+                // Блик
+                ctx.fillStyle = "rgba(255,255,255,0.3)";
+                ctx.beginPath();
+                ctx.arc(x - 5, y - 5, 6, 0, Math.PI*2);
+                ctx.fill();
+            }
+        }
+
+        // --- 6. GAME ENGINE ---
+        const Game = {
+            canvas: document.getElementById('gameCanvas'),
+            ctx: document.getElementById('gameCanvas').getContext('2d'),
+            
+            player: null,
+            enemy: null,
+            particles: [],
+            
+            lastTime: 0,
+            shake: 0,
+            gameActive: false,
+            wins: 0,
+
+            init: function() {
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+                Input.init(this.canvas);
+
+                // UI Buttons
+                document.getElementById('start-btn').addEventListener('click', () => this.startGame(true));
+                document.getElementById('restart-btn').addEventListener('click', () => this.startGame(true));
+
+                this.player = new Fighter(true, '#3498db');
+                this.enemy = new Fighter(false, '#e74c3c');
+
+                this.loop(0);
+            },
+
+            resize: function() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+            },
+
+            startGame: function(resetWins) {
+                AudioSys.init(); // Инициализация звука по клику
+                document.getElementById('start-screen').classList.add('hidden');
+                document.getElementById('gameover-screen').classList.add('hidden');
+                document.getElementById('hints').style.display = 'flex';
+                
+                if (resetWins) this.wins = 0;
+                
+                this.player.reset();
+                this.enemy.reset();
+                this.gameActive = true;
+                this.particles = [];
+            },
+
+            addParticles: function(x, y, color, count) {
+                for(let i=0; i<count; i++) this.particles.push(new Particle(x, y, color, 15));
+            },
+
+            shakeScreen: function(amount) {
+                this.shake = amount;
+            },
+
+            update: function() {
+                if (!this.gameActive) return;
+
+                // Player Logic
+                if (this.player.state !== STATES.KO && this.player.state !== STATES.HIT) {
+                    // Блок
+                    if (Input.leftActive && this.player.stamina > 0) {
+                        this.player.state = STATES.BLOCK;
+                        this.player.stamina -= CONFIG.staminaCostBlock;
+                    } else if (this.player.state === STATES.BLOCK) {
+                        this.player.state = STATES.IDLE;
+                    }
+
+                    // Атака
+                    if (Input.consumeTap() && this.player.stamina > CONFIG.staminaCostHit) {
+                        this.player.state = STATES.ATTACK;
+                        this.player.stamina -= CONFIG.staminaCostHit;
+                        AudioSys.playWhoosh();
+                    }
+                }
+
+                // Сложность растет с победами (AI быстрее на 10% за победу)
+                const difficulty = 1 + (this.wins * 0.1);
+
+                this.player.update(1, this.enemy);
+                this.enemy.update(1, this.player, difficulty);
+
+                // Particle update
+                this.particles.forEach((p, i) => {
+                    p.update();
+                    if(p.life <= 0) this.particles.splice(i, 1);
+                });
+
+                // Win/Loss Check
+                if (this.player.state === STATES.KO) this.gameOver(false);
+                if (this.enemy.state === STATES.KO) this.gameOver(true);
+
+                // Update UI
+                this.updateUI();
+            },
+
+            updateUI: function() {
+                document.getElementById('p1-hp').style.width = (this.player.hp / CONFIG.maxHP * 100) + "%";
+                document.getElementById('p1-st').style.width = (this.player.stamina / CONFIG.maxStamina * 100) + "%";
+                document.getElementById('p2-hp').style.width = (this.enemy.hp / CONFIG.maxHP * 100) + "%";
+                document.getElementById('p2-st').style.width = (this.enemy.stamina / CONFIG.maxStamina * 100) + "%";
+            },
+
+            gameOver: function(win) {
+                this.gameActive = false;
+                if (win) {
+                    this.wins++;
+                    AudioSys.playWin();
+                    // Небольшая пауза и следующий бой
+                    setTimeout(() => {
+                        this.startGame(false); // Следующий раунд
+                    }, 2000);
+                } else {
+                    // Полный проигрыш
+                    document.getElementById('go-title').innerText = "ТЫ В НОКАУТЕ!";
+                    document.getElementById('go-score').innerText = "Побеждено врагов: " + this.wins;
+                    document.getElementById('gameover-screen').classList.remove('hidden');
+                    document.getElementById('hints').style.display = 'none';
+                }
+            },
+
+            draw: function() {
+                // Background
+                this.ctx.fillStyle = "#1a1a1a";
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                // Screen Shake Effect
+                this.ctx.save();
+                if (this.shake > 0) {
+                    const dx = (Math.random() - 0.5) * this.shake;
+                    const dy = (Math.random() - 0.5) * this.shake;
+                    this.ctx.translate(dx, dy);
+                    this.shake *= 0.9; // Затухание
+                    if (this.shake < 0.5) this.shake = 0;
+                }
+
+                // Floor (Octagon Mat)
+                this.ctx.fillStyle = "#2c3e50";
+                const groundY = this.canvas.height * CONFIG.groundY;
+                this.ctx.fillRect(0, groundY, this.canvas.width, this.canvas.height - groundY);
+                
+                // Cage Lines
+                this.ctx.strokeStyle = "#000";
+                this.ctx.lineWidth = 2;
+                for(let i=0; i<this.canvas.width; i+=100) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(i + (i%200?20:-20), 0);
+                    this.ctx.lineTo(i, groundY);
+                    this.ctx.stroke();
+                }
+
+                // Fighters
+                this.player.draw(this.ctx, this.canvas.width, this.canvas.height);
+                this.enemy.draw(this.ctx, this.canvas.width, this.canvas.height);
+
+                // Particles
+                this.particles.forEach(p => p.draw(this.ctx));
+
+                this.ctx.restore();
+            },
+
+            loop: function(timestamp) {
+                this.update();
+                this.draw();
+                requestAnimationFrame((t) => this.loop(t));
+            }
+        };
+
+        // Запуск
+        window.onload = () => Game.init();
+
+    </script>
+</body>
+</html>
