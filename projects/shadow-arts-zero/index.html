@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Shadow Arts: Zero</title>
+<style>
+    /* === UI & OVERLAY === */
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: 'Arial Black', sans-serif; user-select: none; -webkit-user-select: none; touch-action: none; }
+    #gameCanvas { display: block; width: 100%; height: 100%; position: absolute; z-index: 1; filter: contrast(1.1) saturate(1.2); }
+    
+    .ui { position: absolute; z-index: 10; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 20px 40px; box-sizing: border-box; }
+    
+    .hud-top { display: flex; justify-content: space-between; width: 100%; }
+    .health-wrap { width: 35vw; max-width: 400px; display: flex; flex-direction: column; gap: 4px; }
+    .name { color: #fff; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 2px 4px #000; }
+    .bar-bg { width: 100%; height: 18px; background: rgba(0,0,0,0.8); border: 2px solid #333; border-radius: 2px; position: relative; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.8); }
+    .hp-fill { height: 100%; background: linear-gradient(90deg, #b00, #ff2a2a); width: 100%; transition: width 0.1s ease-out; }
+    .hp-delay { position: absolute; top:0; left:0; height:100%; background: #fff; width: 100%; z-index: -1; transition: width 0.4s ease-out 0.2s; }
+    
+    .boss-hud { transform: scaleX(-1); }
+    .boss-hud .name { transform: scaleX(-1); text-align: right; }
+    
+    /* УПРАВЛЕНИЕ */
+    .controls { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 20px; pointer-events: none; }
+    .group { display: flex; gap: 20px; pointer-events: auto; }
+    .btn { width: 70px; height: 70px; border-radius: 50%; background: rgba(20,20,20,0.6); border: 2px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); display: flex; justify-content: center; align-items: center; font-size: 24px; font-weight: bold; backdrop-filter: blur(4px); transition: transform 0.05s, background 0.1s; }
+    .btn:active { transform: scale(0.85); background: rgba(255,255,255,0.2); color: #fff; border-color: #fff; }
+    
+    .act-atk { border-color: #f33; color: #f33; }
+    .act-atk:active { background: rgba(255,50,50,0.3); border-color: #f33; }
+    .act-dash { border-color: #0cf; color: #0cf; width: 60px; height: 60px; align-self: flex-end; margin-bottom: 5px; }
+
+    #hitCounter { position: absolute; top: 20%; right: 5%; font-size: 50px; color: #fff; text-shadow: 0 0 20px #f00, 4px 4px 0 #800; font-style: italic; opacity: 0; transform: scale(0.5); transition: opacity 0.2s, transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    .hit-active { opacity: 1 !important; transform: scale(1) !important; }
+
+    #overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: #000; z-index: 50; display: flex; justify-content: center; align-items: center; color: white; font-size: 40px; letter-spacing: 10px; opacity: 0; pointer-events: none; transition: opacity 1s; }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<div class="ui">
+    <div class="hud-top">
+        <div class="health-wrap">
+            <div class="name">РОНИН</div>
+            <div class="bar-bg"><div id="hpDelayP" class="hp-delay"></div><div id="hpP" class="hp-fill"></div></div>
+        </div>
+        <div class="health-wrap boss-hud">
+            <div class="name">ТЕНЕВОЙ СЁГУН</div>
+            <div class="bar-bg"><div id="hpDelayB" class="hp-delay"></div><div id="hpB" class="hp-fill"></div></div>
+        </div>
+    </div>
+
+    <div id="hitCounter">0 HITS</div>
+
+    <div class="controls">
+        <div class="group">
+            <div class="btn" id="btnL">◄</div>
+            <div class="btn" id="btnR">►</div>
+        </div>
+        <div class="group">
+            <div class="btn act-dash" id="btnDash">~</div>
+            <div class="btn act-atk" id="btnAtk">⚔</div>
+        </div>
+    </div>
+</div>
+
+<div id="overlay">СМЕРТЬ</div>
+
+<script>
+/** * SHADOW ARTS ENGINE
+ * ААА-архитектура на чистом Canvas 2D
+ */
+const cvs = document.getElementById('gameCanvas');
+const ctx = cvs.getContext('2d', { alpha: false });
+let cw, ch, floor;
+
+function resize() {
+    cw = cvs.width = window.innerWidth;
+    ch = cvs.height = window.innerHeight;
+    floor = ch - 80;
+}
+window.addEventListener('resize', resize); resize();
+
+// === INPUT MANAGEMENT ===
+const Input = { l:0, r:0, atk:0, dash:0 };
+const bind = (id, key, type) => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    const press = (e) => { e.preventDefault(); if(type==='hold') Input[key]=1; else Game.player.action(key); };
+    const release = (e) => { e.preventDefault(); if(type==='hold') Input[key]=0; };
+    el.addEventListener('touchstart', press, {passive:false}); el.addEventListener('mousedown', press);
+    el.addEventListener('touchend', release, {passive:false}); el.addEventListener('mouseup', release);
+    el.addEventListener('mouseleave', release);
+};
+bind('btnL', 'l', 'hold'); bind('btnR', 'r', 'hold');
+bind('btnAtk', 'atk', 'press'); bind('btnDash', 'dash', 'press');
+
+// Математика и Утилиты
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeOutCubic = x => 1 - Math.pow(1 - x, 3);
+
+// === CAMERA SYSTEM ===
+const Camera = {
+    x: 0, y: 0, targetX: 0, zoom: 1, targetZoom: 1,
+    shakeX: 0, shakeY: 0, shakeTime: 0,
+    
+    update(dt, px, bx) {
+        // Фокус между игроком и боссом
+        let midX = (px + bx) / 2;
+        this.targetX = midX - cw/2;
+        
+        // Ограничения камеры
+        this.targetX = Math.max(-500, Math.min(1500, this.targetX));
+        this.x = lerp(this.x, this.targetX, 0.1 * dt);
+
+        // Динамический зум в зависимости от расстояния
+        let dist = Math.abs(px - bx);
+        this.targetZoom = dist < 300 ? 1.15 : 1.0;
+        this.zoom = lerp(this.zoom, this.targetZoom, 0.05 * dt);
+
+        if(this.shakeTime > 0) {
+            this.shakeX = (Math.random() - 0.5) * this.shakeTime;
+            this.shakeY = (Math.random() - 0.5) * this.shakeTime;
+            this.shakeTime -= dt * 2;
+        } else { this.shakeX = this.shakeY = 0; }
+    },
+    
+    shake(intensity) { this.shakeTime = intensity; },
+    
+    apply(ctx) {
+        ctx.save();
+        ctx.translate(cw/2, ch/2); // В центр для зума
+        ctx.scale(this.zoom, this.zoom);
+        ctx.translate(-cw/2, -ch/2); // Обратно
+        ctx.translate(-this.x + this.shakeX, this.shakeY);
+    },
+    reset(ctx) { ctx.restore(); }
+};
+
+// === VFX (ЧАСТИЦЫ И ШЛЕЙФЫ) ===
+const VFX = {
+    particles: [],
+    trails: [],
+    
+    spawnBlood(x, y, dir, amount) {
+        for(let i=0; i<amount; i++) {
+            this.particles.push({
+                x, y,
+                vx: dir * (Math.random() * 15 + 5),
+                vy: -Math.random() * 15,
+                life: 1, type: 'blood', size: Math.random() * 4 + 2
+            });
+        }
+    },
+    spawnSparks(x, y, dir) {
+        for(let i=0; i<8; i++) {
+            this.particles.push({
+                x, y,
+                vx: dir * (Math.random() * 20), vy: (Math.random() - 0.5) * 20,
+                life: 1, type: 'spark', size: Math.random() * 3 + 1
+            });
+        }
+    },
+    addTrail(x1, y1, x2, y2, color) {
+        this.trails.push({ x1, y1, x2, y2, color, life: 1 });
+    },
+    
+    update(dt) {
+        for(let i=this.particles.length-1; i>=0; i--) {
+            let p = this.particles[i];
+            p.life -= 0.03 * dt;
+            p.x += p.vx * dt; p.y += p.vy * dt;
+            if(p.type === 'blood') {
+                p.vy += 0.8 * dt; // Gravity
+                if(p.y > floor) { p.y = floor; p.vx *= 0.5; p.vy = 0; }
+            }
+            if(p.life <= 0) this.particles.splice(i, 1);
+        }
+        for(let i=this.trails.length-1; i>=0; i--) {
+            this.trails[i].life -= 0.1 * dt;
+            if(this.trails[i].life <= 0) this.trails.splice(i, 1);
+        }
+    },
+    
+    draw(ctx) {
+        // Отрисовка частиц
+        for(let p of this.particles) {
+            ctx.fillStyle = p.type === 'blood' ? `rgba(200, 0, 0, ${p.life})` : `rgba(255, 200, 0, ${p.life})`;
+            if(p.type === 'spark') {
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+            } else {
+                ctx.fillRect(p.x, p.y, p.size, p.size);
+            }
+        }
+        
+        // Отрисовка шлейфов от меча (Сложная геометрия)
+        if(this.trails.length > 1) {
+            ctx.globalCompositeOperation = 'screen';
+            for(let i=0; i<this.trails.length-1; i++) {
+                let t1 = this.trails[i], t2 = this.trails[i+1];
+                if(t1.life <= 0 || t2.life <= 0) continue;
+                
+                ctx.fillStyle = `rgba(${t1.color}, ${t1.life * 0.8})`;
+                ctx.beginPath();
+                ctx.moveTo(t1.x1, t1.y1); ctx.lineTo(t1.x2, t1.y2);
+                ctx.lineTo(t2.x2, t2.y2); ctx.lineTo(t2.x1, t2.y1);
+                ctx.fill();
+            }
+            ctx.globalCompositeOperation = 'source-over';
+        }
+    }
+};
+
+// === ИГРОВЫЕ СУЩНОСТИ (СИЛУЭТЫ) ===
+// Ключевые кадры анимаций (Скелет)
+const Poses = {
+    idle: { torsoRot: 0.1, armL: 0.5, armR: -0.2, legL: 0.2, legR: -0.2, sword: -0.5 },
+    run1: { torsoRot: 0.3, armL: -1, armR: 1, legL: -1, legR: 1, sword: -1 },
+    run2: { torsoRot: 0.3, armL: 1, armR: -1, legL: 1, legR: -1, sword: -0.5 },
+    atk1_windup: { torsoRot: -0.2, armL: -2, armR: -2, legL: 0.5, legR: -0.5, sword: -2.5 },
+    atk1_strike: { torsoRot: 0.5, armL: 1, armR: 1, legL: -0.5, legR: 0.5, sword: 1.5 },
+    atk2_windup: { torsoRot: 0.2, armL: 1, armR: 2, legL: 0.2, legR: -0.2, sword: 2.5 },
+    atk2_strike: { torsoRot: -0.5, armL: -1, armR: -1.5, legL: 0.5, legR: -0.5, sword: -1.5 },
+    dash: { torsoRot: 0.8, armL: -1, armR: -1.5, legL: 0.8, legR: -0.8, sword: -1.5 },
+    hit:  { torsoRot: -0.5, armL: 2, armR: -2, legL: -0.5, legR: 0.5, sword: 1 }
+};
+
+class Fighter {
+    constructor(x, isPlayer) {
+        this.x = x; this.y = floor;
+        this.isPlayer = isPlayer;
+        this.dir = isPlayer ? 1 : -1;
+        this.maxHp = isPlayer ? 500 : 1200;
+        this.hp = this.maxHp;
+        
+        this.vx = 0; this.vy = 0;
+        this.state = 'idle';
+        this.stateTimer = 0;
+        this.comboStep = 0;
+        
+        this.pose = {...Poses.idle};
+        this.targetPose = {...Poses.idle};
+        this.trailColor = isPlayer ? '0, 180, 255' : '255, 30, 30';
+        
+        this.hitboxes = [];
+    }
+
+    action(act) {
+        if(['hit', 'dead', 'dash'].includes(this.state)) return;
+
+        if(act === 'dash') {
+            this.state = 'dash'; this.stateTimer = 0;
+            this.vx = this.dir * 40; // Резкий рывок
+            this.targetPose = Poses.dash;
+            VFX.spawnSparks(this.x, this.y-20, -this.dir);
+            return;
+        }
+
+        if(act === 'atk') {
+            // Комбо-система (Cancel окон)
+            if(this.state === 'attack' && this.stateTimer > 15 && this.comboStep < 2) {
+                this.comboStep++;
+                this.stateTimer = 0; // Начинаем следующий удар
+            } else if (this.state !== 'attack') {
+                this.state = 'attack';
+                this.comboStep = 0;
+                this.stateTimer = 0;
+            }
+        }
+    }
+
+    takeHit(dmg, dir) {
+        if(this.state === 'dead' || this.state === 'dash') return; // неуязвимость во время рывка
+        
+        this.hp -= dmg;
+        this.state = 'hit'; this.stateTimer = 0;
+        this.targetPose = Poses.hit;
+        this.comboStep = 0;
+        
+        this.vx = dir * 15; // Нокбэк
+        
+        VFX.spawnBlood(this.x, this.y - 70, dir, 15);
+        Camera.shake(15);
+        Game.hitlag = 4; // Сочная остановка времени
+        
+        if(this.isPlayer) { Game.comboCount = 0; Game.updateUI(); }
+
+        if(this.hp <= 0) {
+            this.state = 'dead';
+            if(!this.isPlayer) Game.victory();
+            else Game.defeat();
+        }
+    }
+
+    update(dt, enemy) {
+        if(this.state === 'dead') { this.vx *= 0.9; this.x += this.vx * dt; return; }
+
+        this.stateTimer += dt;
+        
+        // Физика (трение и границы)
+        this.x += this.vx * dt;
+        this.vx *= Math.pow(0.8, dt);
+        this.x = Math.max(50, Math.min(2000, this.x));
+
+        // Поворот к врагу
+        if(this.state === 'idle' || this.state === 'run') {
+            this.dir = this.x < enemy.x ? 1 : -1;
+        }
+
+        // Логика состояний
+        if(this.state === 'dash') {
+            if(this.stateTimer > 15) this.state = 'idle'; // Окончание дэша
+        }
+        else if(this.state === 'attack') {
+            // Фреймдата ударов (60 FPS базис)
+            let isAtk1 = this.comboStep === 0;
+            let windup = isAtk1 ? 8 : 12;
+            let active = isAtk1 ? 12 : 18;
+            let recover = isAtk1 ? 25 : 35;
+            
+            // Анимация замаха
+            if(this.stateTimer < windup) {
+                this.targetPose = isAtk1 ? Poses.atk1_windup : Poses.atk2_windup;
+                this.hitboxes = []; // Очистка
+            } 
+            // Активные кадры (Удар)
+            else if(this.stateTimer < active) {
+                this.targetPose = isAtk1 ? Poses.atk1_strike : Poses.atk2_strike;
+                
+                // Микро-рывок вперед при ударе
+                if(this.stateTimer === windup) this.vx = this.dir * 12;
+                
+                // Проверка попадания
+                let reach = isAtk1 ? 120 : 150;
+                let dmg = isAtk1 ? 40 : 70;
+                
+                if(Math.abs(this.x - enemy.x) < reach && Math.sign(enemy.x - this.x) === this.dir && enemy.state !== 'dead') {
+                    // ХИТ!
+                    enemy.takeHit(dmg, this.dir);
+                    VFX.spawnSparks(enemy.x, enemy.y - 70, this.dir);
+                    
+                    if(this.isPlayer) {
+                        Game.comboCount++;
+                        Game.updateUI();
+                        Camera.zoomTo = 1.1; // Эффект удара
+                    }
+                    this.stateTimer = active; // Фикс мульти-хита за 1 кадр
+                }
+            } 
+            // Восстановление
+            else if(this.stateTimer > recover) {
+                this.state = 'idle';
+                this.comboStep = 0;
+            }
+        }
+        else if(this.state === 'hit') {
+            if(this.stateTimer > 20) this.state = 'idle';
+        }
+        else if(this.isPlayer) {
+            // Управление игроком
+            if(Input.l) { this.vx -= 1.5 * dt; this.state = 'run'; this.dir = -1; }
+            else if(Input.r) { this.vx += 1.5 * dt; this.state = 'run'; this.dir = 1; }
+            else { this.state = 'idle'; }
+            
+            // Анимация бега
+            if(this.state === 'run') this.targetPose = (Math.floor(Date.now() / 150) % 2 === 0) ? Poses.run1 : Poses.run2;
+            else this.targetPose = Poses.idle;
+            
+            this.vx = Math.max(-10, Math.min(10, this.vx)); // Макс скорость
+        }
+        else {
+            // AI БОССА
+            let dist = Math.abs(this.x - enemy.x);
+            if(dist > 150) {
+                this.vx += this.dir * 1.0 * dt;
+                this.state = 'run';
+                this.targetPose = (Math.floor(Date.now() / 200) % 2 === 0) ? Poses.run1 : Poses.run2;
+                this.vx = Math.max(-6, Math.min(6, this.vx));
+            } else {
+                this.state = 'idle'; this.targetPose = Poses.idle;
+                // Агрессия босса
+                if(Math.random() < 0.03 * dt) {
+                    this.action('atk');
+                    if(Math.random() > 0.5) this.comboStep = 1; // Иногда бьет сразу тяжким
+                }
+                // Рывок
+                if(Math.random() < 0.01 * dt) this.action('dash');
+            }
+        }
+
+        // Интерполяция скелета (Плавность AAA)
+        let lerpSpeed = this.state === 'attack' ? 0.4 : 0.2;
+        for(let key in this.pose) {
+            this.pose[key] = lerp(this.pose[key], this.targetPose[key], lerpSpeed * dt);
+        }
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.scale(this.dir, 1);
+
+        // Тень
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.beginPath(); ctx.ellipse(0, 0, 40, 8, 0, 0, Math.PI*2); ctx.fill();
+
+        // Стилизация: Абсолютно черный силуэт с легким свечением по краям
+        ctx.fillStyle = '#000';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 14;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        
+        if(!this.isPlayer) {
+            ctx.shadowBlur = 15; ctx.shadowColor = '#f00';
+        }
+
+        // Моргание при уроне
+        if(this.state === 'hit' && Math.floor(this.stateTimer/2) % 2 === 0) {
+            ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff'; ctx.shadowBlur = 0;
+        }
+
+        let p = this.pose;
+        let by = -70; // Таз
+        
+        // Кинематика узлов
+        const getPoint = (sx, sy, ang, len) => ({ x: sx + Math.sin(ang)*len, y: sy + Math.cos(ang)*len });
+        const drawSegment = (p1, p2) => { ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke(); };
+
+        // Задняя нога
+        let kneeR = getPoint(0, by, p.legR, 40);
+        let footR = getPoint(kneeR.x, kneeR.y, p.legR + 0.2, 35);
+        drawSegment({x:0, y:by}, kneeR); drawSegment(kneeR, footR);
+
+        // Туловище и Шея
+        let neck = getPoint(0, by, p.torsoRot + Math.PI, 60);
+        drawSegment({x:0, y:by}, neck);
+
+        // Голова (Полигон / Круг)
+        ctx.beginPath(); ctx.arc(neck.x + Math.sin(p.torsoRot+Math.PI)*10, neck.y + Math.cos(p.torsoRot+Math.PI)*10, 16, 0, Math.PI*2); ctx.fill();
+
+        // Задняя рука + ОРУЖИЕ (КАТАНА)
+        let elbowR = getPoint(neck.x, neck.y, p.armR, 30);
+        let handR = getPoint(elbowR.x, elbowR.y, p.armR + 0.5, 30);
+        drawSegment(neck, elbowR); drawSegment(elbowR, handR);
+        
+        // КАТАНА
+        let swordTip = getPoint(handR.x, handR.y, p.sword, 90);
+        ctx.lineWidth = 6; ctx.strokeStyle = '#aaa';
+        drawSegment(handR, swordTip);
+        
+        // Запись шлейфа от меча
+        if(this.state === 'attack' && this.stateTimer > 4) {
+            // Конвертация локальных координат в мировые
+            let worldHand = { x: this.x + handR.x * this.dir, y: this.y + handR.y };
+            let worldTip = { x: this.x + swordTip.x * this.dir, y: this.y + swordTip.y };
+            VFX.addTrail(worldHand.x, worldHand.y, worldTip.x, worldTip.y, this.trailColor);
+        }
+
+        ctx.lineWidth = 14; ctx.strokeStyle = ctx.fillStyle; // Возврат ширины
+        
+        // Передняя нога
+        let kneeL = getPoint(0, by, p.legL, 40);
+        let footL = getPoint(kneeL.x, kneeL.y, p.legL + 0.2, 35);
+        drawSegment({x:0, y:by}, kneeL); drawSegment(kneeL, footL);
+
+        // Передняя рука
+        let elbowL = getPoint(neck.x, neck.y, p.armL, 30);
+        let handL = getPoint(elbowL.x, elbowL.y, p.armL + 0.5, 30);
+        drawSegment(neck, elbowL); drawSegment(elbowL, handL);
+
+        // Глаз демона (Светящийся акцент)
+        if(this.state !== 'hit') {
+            ctx.fillStyle = this.isPlayer ? '#0ff' : '#f00';
+            ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle;
+            ctx.beginPath(); ctx.arc(neck.x + (this.isPlayer?8:6), neck.y - 12, 3, 0, Math.PI*2); ctx.fill();
+        }
+
+        ctx.restore();
+    }
+}
+
+// === CORE LOOP ===
+const Game = {
+    lastTime: performance.now(),
+    hitlag: 0,
+    comboCount: 0,
+    state: 'playing',
+    
+    init() {
+        this.player = new Fighter(300, true);
+        this.boss = new Fighter(1000, false);
+        this.updateUI();
+        requestAnimationFrame((t) => this.loop(t));
+    },
+
+    updateUI() {
+        // Здоровье
+        document.getElementById('hpP').style.width = Math.max(0, this.player.hp/this.player.maxHp*100) + '%';
+        document.getElementById('hpDelayP').style.width = Math.max(0, this.player.hp/this.player.maxHp*100) + '%';
+        document.getElementById('hpB').style.width = Math.max(0, this.boss.hp/this.boss.maxHp*100) + '%';
+        document.getElementById('hpDelayB').style.width = Math.max(0, this.boss.hp/this.boss.maxHp*100) + '%';
+        
+        // Комбо
+        let cEl = document.getElementById('hitCounter');
+        if(this.comboCount > 1) {
+            cEl.innerText = this.comboCount + " HITS";
+            cEl.classList.remove('hit-active');
+            void cEl.offsetWidth; // Reflow
+            cEl.classList.add('hit-active');
+        } else {
+            cEl.classList.remove('hit-active');
+        }
+    },
+
+    victory() {
+        this.state = 'end';
+        let ov = document.getElementById('overlay');
+        ov.innerText = "ПОБЕДА";
+        ov.style.color = "#0cf";
+        ov.style.opacity = 1;
+        setTimeout(() => location.reload(), 4000);
+    },
+
+    defeat() {
+        this.state = 'end';
+        let ov = document.getElementById('overlay');
+        ov.innerText = "СМЕРТЬ";
+        ov.style.color = "#f00";
+        ov.style.opacity = 1;
+        setTimeout(() => location.reload(), 4000);
+    },
+
+    loop(timestamp) {
+        let dt = (timestamp - this.lastTime) / 16.6;
+        if(dt > 3) dt = 3;
+        this.lastTime = timestamp;
+
+        if(this.hitlag > 0) {
+            this.hitlag -= dt;
+        } else if (this.state === 'playing') {
+            this.player.update(dt, this.boss);
+            this.boss.update(dt, this.player);
+            VFX.update(dt);
+        }
+
+        Camera.update(dt, this.player.x, this.boss.x);
+
+        // === РЕНДЕР ===
+        // Фон: Кровавый закат
+        let grad = ctx.createLinearGradient(0, 0, 0, ch);
+        grad.addColorStop(0, '#300'); grad.addColorStop(0.5, '#b20'); grad.addColorStop(1, '#000');
+        ctx.fillStyle = grad; ctx.fillRect(0, 0, cw, ch);
+
+        Camera.apply(ctx);
+
+        // Солнце
+        ctx.fillStyle = '#ff5'; ctx.shadowBlur = 100; ctx.shadowColor = '#f00';
+        ctx.beginPath(); ctx.arc(800, ch/2, 200, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
+
+        // Дальние горы (Параллакс)
+        ctx.fillStyle = '#100';
+        ctx.beginPath(); ctx.moveTo(-500, floor); ctx.lineTo(200, floor-300); ctx.lineTo(800, floor); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(500, floor); ctx.lineTo(1200, floor-400); ctx.lineTo(1800, floor); ctx.fill();
+
+        // Пол
+        ctx.fillStyle = '#000'; ctx.fillRect(-1000, floor, 4000, ch);
+        ctx.strokeStyle = '#f33'; ctx.lineWidth = 3; 
+        ctx.beginPath(); ctx.moveTo(-1000, floor); ctx.lineTo(3000, floor); ctx.stroke();
+
+        // Шлейфы рисуются ПОД персонажами
+        VFX.draw(ctx);
+
+        // Персонажи
+        this.boss.draw(ctx);
+        this.player.draw(ctx);
+
+        Camera.reset(ctx);
+        
+        // Виньетка (Пост-процессинг)
+        let vGrad = ctx.createRadialGradient(cw/2, ch/2, ch/2, cw/2, ch/2, cw);
+        vGrad.addColorStop(0, 'rgba(0,0,0,0)'); vGrad.addColorStop(1, 'rgba(0,0,0,0.8)');
+        ctx.fillStyle = vGrad; ctx.fillRect(0, 0, cw, ch);
+
+        requestAnimationFrame((t) => this.loop(t));
+    }
+};
+
+Game.init();
+</script>
+</body>
+</html>
