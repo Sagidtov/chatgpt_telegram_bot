@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Love Pulse Hearts</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{width:100%;height:100%;overflow:hidden;background:#000;overscroll-behavior:none;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;user-select:none;-webkit-user-select:none}
+    body{display:flex;align-items:center;justify-content:center;touch-action:none}
+    .scene{position:fixed;inset:0;overflow:hidden;background:radial-gradient(circle at 50% 50%,#160019 0%,#050006 48%,#000 100%)}
+    .glow{position:absolute;inset:auto;left:50%;top:50%;width:64vmin;height:64vmin;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,rgba(255,54,154,.24),rgba(255,54,154,.06) 38%,transparent 68%);filter:blur(12px);animation:pulse 3s ease-in-out infinite}
+    .title{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:5;text-align:center;color:#fff;text-shadow:0 0 16px #ff4fa3,0 0 42px #ff006e;letter-spacing:.08em;font-weight:900;font-size:clamp(34px,9vw,92px);line-height:.95}
+    .subtitle{display:block;margin-top:14px;font-size:clamp(13px,3vw,20px);letter-spacing:.22em;color:#ffd6eb;text-transform:uppercase;text-shadow:0 0 12px #ff4fa3;font-weight:700}
+    .love{position:absolute;left:50%;top:50%;z-index:3;will-change:transform;animation:vertical 20s linear infinite}
+    .love span{display:block;color:#ea80b0;font-weight:800;font-size:clamp(16px,4vw,34px);letter-spacing:2px;text-shadow:0 0 10px #fff,0 0 24px #ea80b0;animation:horizontal 10s ease-in-out infinite alternate;white-space:nowrap}
+    .heart-bubble{position:absolute;border-radius:50%;z-index:2;transform:scale(0);box-shadow:inset 0 0 0 8vmin transparent;animation:burst 3s infinite;will-change:transform,box-shadow}
+    .heart{position:absolute;left:50%;top:50%;width:55%;height:55%;transform:translate(-50%,-50%) rotate(45deg) scale(.65);background:#ff5d13;opacity:0;animation:love 3s infinite;box-shadow:0 0 18px rgba(255,93,19,.8)}
+    .heart:before,.heart:after{content:"";position:absolute;width:100%;height:100%;border-radius:50%;background:inherit}
+    .heart:before{left:-50%;top:0}.heart:after{left:0;top:-50%}
+    .star{position:absolute;width:2px;height:2px;border-radius:50%;background:#fff;opacity:.8;animation:twinkle 2s ease-in-out infinite alternate}
+    @keyframes pulse{0%,100%{transform:translate(-50%,-50%) scale(.92);opacity:.7}50%{transform:translate(-50%,-50%) scale(1.08);opacity:1}}
+    @keyframes horizontal{from{transform:translateX(-42vmin) rotate(-20deg)}to{transform:translateX(42vmin) rotate(20deg)}}
+    @keyframes vertical{0%{transform:translateY(18vmin)}18%{transform:translateY(-18vmin)}35%{transform:translateY(0)}50%{transform:translateY(18vmin)}75%{transform:translateY(44vmin)}100%{transform:translateY(18vmin)}}
+    @keyframes burst{50%,100%{box-shadow:inset 0 0 0 0 rgb(211,6,177);transform:scale(1)}}
+    @keyframes love{45%,60%{opacity:1;transform:translate(-50%,-50%) rotate(45deg) scale(1)}100%{opacity:0}}
+    @keyframes twinkle{from{opacity:.2;transform:scale(.7)}to{opacity:1;transform:scale(1.8)}}
+    @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;animation-iteration-count:1!important}}
+  </style>
+</head>
+<body>
+  <main class="scene" id="scene" aria-label="Animated I Love You hearts">
+    <div class="glow"></div>
+    <h1 class="title">I Love You<span class="subtitle">forever</span></h1>
+  </main>
+  <script>
+    (()=>{
+      const scene=document.getElementById('scene');
+      const random=(min,max)=>min+Math.random()*(max-min);
+      for(let i=0;i<85;i++){
+        const love=document.createElement('div');
+        love.className='love';
+        love.style.animationDelay=`${-i*300}ms`;
+        love.style.left=`${random(35,65)}%`;
+        love.style.top=`${random(38,62)}%`;
+        const text=document.createElement('span');
+        text.textContent='I Love You';
+        text.style.animationDelay=`${-i*300}ms`;
+        text.style.fontSize=`${random(15,34)}px`;
+        text.style.opacity=random(.45,1).toFixed(2);
+        love.appendChild(text);
+        scene.appendChild(love);
+      }
+      for(let i=0;i<24;i++){
+        const b=document.createElement('div');
+        b.className='heart-bubble';
+        const size=random(4,19);
+        b.style.width=`${size}vmin`;
+        b.style.height=`${size}vmin`;
+        b.style.left=`${random(0,96)}%`;
+        b.style.top=`${random(0,92)}%`;
+        b.style.animationDelay=`${i*0.14}s`;
+        const h=document.createElement('div');
+        h.className='heart';
+        h.style.animationDelay=`${i*0.14}s`;
+        b.appendChild(h);
+        scene.appendChild(b);
+      }
+      for(let i=0;i<90;i++){
+        const s=document.createElement('i');
+        s.className='star';
+        s.style.left=`${random(0,100)}%`;
+        s.style.top=`${random(0,100)}%`;
+        s.style.animationDelay=`${random(0,2)}s`;
+        scene.appendChild(s);
+      }
+    })();
+  </script>
+</body>
+</html>
